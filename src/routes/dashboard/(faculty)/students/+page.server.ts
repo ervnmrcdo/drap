@@ -10,6 +10,7 @@ import {
   getFacultyAndStaff,
   getFacultyChoiceForLabInDraftRound,
   getLabAndRemainingStudentsInDraftWithLabPreference,
+  getLabAutoAcknowledgeStatusInDraftRound,
   getLabById,
   getLabQuotaAndSelectedStudentCountInDraft,
   getLabSelectedStudentCountInDraftRound,
@@ -173,6 +174,36 @@ export const actions = {
 
             if (activeDraft.currRound !== expectedRound)
               throw new RoundMismatchError(activeDraft.currRound, expectedRound);
+
+            const autoAcknowledgeStatus = await getLabAutoAcknowledgeStatusInDraftRound(
+              db,
+              draftId,
+              lab,
+              activeDraft.currRound,
+            );
+            if (typeof autoAcknowledgeStatus === 'undefined') {
+              logger.fatal(
+                'attempt to submit rankings for lab outside active draft snapshot',
+                void 0,
+                {
+                  'draft.id': draftId.toString(),
+                  'lab.id': lab,
+                },
+              );
+              error(403);
+            }
+
+            const { autoAcknowledgeReason, submissionSource } = autoAcknowledgeStatus;
+            if (typeof autoAcknowledgeReason !== 'undefined') {
+              logger.fatal('attempt to submit rankings for auto-acknowledged lab', void 0, {
+                'draft.id': draftId.toString(),
+                'lab.id': lab,
+                'draft.round.current': activeDraft.currRound,
+                'draft.round.auto_acknowledge_reason': autoAcknowledgeReason,
+                'draft.round.submission_source': submissionSource,
+              });
+              error(409);
+            }
 
             const existingChoice = await getFacultyChoiceForLabInDraftRound(
               db,

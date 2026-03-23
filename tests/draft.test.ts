@@ -55,6 +55,28 @@ async function expectStudentsCallout(
     await expect(statusBanner).toHaveAttribute('data-variant', 'info');
     await expect(statusBanner).toContainText(options.banner);
   }
+
+  await expect(page.locator('form[action="/dashboard/students/?/rankings"]')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Submit Selection' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Update Selection' })).toHaveCount(0);
+}
+
+async function postFacultyRankings(page: Page, draft: number, round: number) {
+  return await page.evaluate(
+    async ({ draft, round }) => {
+      const data = new FormData();
+      data.set('draft', String(draft));
+      data.set('round', String(round));
+
+      const response = await fetch('/dashboard/students/?/rankings', {
+        method: 'POST',
+        body: data,
+      });
+
+      return response.status;
+    },
+    { draft, round },
+  );
 }
 
 async function expectVisibleButtons(page: Page, labels: string[]) {
@@ -693,6 +715,7 @@ test.describe('Draft Lifecycle', () => {
         await expectStatCards(ndslHeadPage, { quota: 2, remaining: 2, drafted: 0 });
         await expectNoPreviousPicks(ndslHeadPage);
         await expect(ndslHeadPage.locator('#selection-progress')).toContainText('0 / 2 slots');
+        await expect(ndslHeadPage.getByRole('button', { name: 'Submit Selection' })).toBeVisible();
       });
 
       test('sees 1st-choice students (Eager, PartialToDrafted)', async ({ ndslHeadPage }) => {
@@ -706,15 +729,12 @@ test.describe('Draft Lifecycle', () => {
         await ndslHeadPage.getByRole('button', { name: /Eager/u }).click();
         ndslHeadPage.on('dialog', dialog => dialog.accept());
         const responsePromise = ndslHeadPage.waitForResponse('/dashboard/students/?/rankings');
-        await ndslHeadPage.getByRole('button', { name: 'Submit' }).click();
+        await ndslHeadPage.getByRole('button', { name: 'Submit Selection' }).click();
         const response = await responsePromise;
         const responseData = await response.json();
         expect(responseData.type).toBe('success');
 
-        await expectStudentsCallout(
-          ndslHeadPage,
-          'This lab has already submitted its picks for this round.',
-        );
+        await expect(ndslHeadPage.getByRole('button', { name: 'Update Selection' })).toBeVisible();
       });
 
       test('after submission: reflects 1 drafted', async ({ ndslHeadPage }) => {
@@ -724,8 +744,7 @@ test.describe('Draft Lifecycle', () => {
 
       test('can amend picks while round is still active', async ({ ndslHeadPage }) => {
         await ndslHeadPage.goto('/dashboard/students/');
-        await expect(ndslHeadPage.getByRole('button', { name: 'Edit Selection' })).toBeVisible();
-        await ndslHeadPage.getByRole('button', { name: 'Edit Selection' }).click();
+        await expect(ndslHeadPage.getByRole('button', { name: 'Update Selection' })).toBeVisible();
         await expect(ndslHeadPage.getByRole('button', { name: /Eager/u })).toBeVisible();
         await expect(ndslHeadPage.getByRole('button', { name: /Partial/u })).toBeVisible();
 
@@ -734,35 +753,30 @@ test.describe('Draft Lifecycle', () => {
         await ndslHeadPage.getByRole('button', { name: /Partial/u }).click();
         ndslHeadPage.on('dialog', dialog => dialog.accept());
         const responsePromise = ndslHeadPage.waitForResponse('/dashboard/students/?/rankings');
-        await ndslHeadPage.getByRole('button', { name: 'Save Changes' }).click();
+        await ndslHeadPage.getByRole('button', { name: 'Update Selection' }).click();
         const response = await responsePromise;
         const responseData = await response.json();
         expect(responseData.type).toBe('success');
 
-        await expectStudentsCallout(
-          ndslHeadPage,
-          'This lab has already submitted its picks for this round.',
-        );
+        await expect(ndslHeadPage.getByRole('button', { name: 'Update Selection' })).toBeVisible();
       });
 
-      test('can cancel edit without saving changes', async ({ ndslHeadPage }) => {
+      test('unsaved inline changes do not persist after reload', async ({ ndslHeadPage }) => {
         await ndslHeadPage.goto('/dashboard/students/');
-        await ndslHeadPage.getByRole('button', { name: 'Edit Selection' }).click();
 
-        // Make a change but cancel
-        await ndslHeadPage.getByRole('button', { name: /Partial/u }).click();
-        await ndslHeadPage.getByRole('button', { name: 'Cancel' }).click();
+        // Make a change without submitting
+        await ndslHeadPage.getByRole('button', { name: /Eager/u }).click();
+        await ndslHeadPage.goto('/dashboard/students/');
 
-        // Dialog should be closed
-        await expect(ndslHeadPage.getByRole('dialog')).toHaveCount(0);
+        await expect(ndslHeadPage.getByRole('button', { name: 'Update Selection' })).toBeVisible();
 
-        // Original selection should still be visible in Previous Picks
+        // Original saved selection should still be visible after reload
         await expectPreviousPicksTab(ndslHeadPage, 1, [/Partial/u]);
+        await expect(ndslHeadPage.locator('#selection-progress')).toContainText('1 /');
       });
 
       test('can edit to empty selection then reselect', async ({ ndslHeadPage }) => {
         await ndslHeadPage.goto('/dashboard/students/');
-        await ndslHeadPage.getByRole('button', { name: 'Edit Selection' }).click();
 
         // Deselect the current pick (Partial from previous test)
         await ndslHeadPage.getByRole('button', { name: /Partial/u }).click();
@@ -770,25 +784,20 @@ test.describe('Draft Lifecycle', () => {
 
         ndslHeadPage.on('dialog', dialog => dialog.accept());
         let responsePromise = ndslHeadPage.waitForResponse('/dashboard/students/?/rankings');
-        await ndslHeadPage.getByRole('button', { name: 'Save Changes' }).click();
+        await ndslHeadPage.getByRole('button', { name: 'Update Selection' }).click();
         let response = await responsePromise;
         let responseData = await response.json();
         expect(responseData.type).toBe('success');
 
-        // After empty submission, should still show submitted state
-        await expectStudentsCallout(
-          ndslHeadPage,
-          'This lab has already submitted its picks for this round.',
-        );
+        await expect(ndslHeadPage.getByRole('button', { name: 'Update Selection' })).toBeVisible();
 
         // Stat cards should show 0 drafted for this round
         await expectStatCards(ndslHeadPage, { quota: 2, remaining: 2, drafted: 0 });
 
         // Now re-select Eager to restore expected state for subsequent tests
-        await ndslHeadPage.getByRole('button', { name: 'Edit Selection' }).click();
         await ndslHeadPage.getByRole('button', { name: /Eager/u }).click();
         responsePromise = ndslHeadPage.waitForResponse('/dashboard/students/?/rankings');
-        await ndslHeadPage.getByRole('button', { name: 'Save Changes' }).click();
+        await ndslHeadPage.getByRole('button', { name: 'Update Selection' }).click();
         response = await responsePromise;
         responseData = await response.json();
         expect(responseData.type).toBe('success');
@@ -800,22 +809,20 @@ test.describe('Draft Lifecycle', () => {
         await ndslHeadPage.goto('/dashboard/students/');
 
         // First edit: swap Eager for Partial
-        await ndslHeadPage.getByRole('button', { name: 'Edit Selection' }).click();
         await ndslHeadPage.getByRole('button', { name: /Eager/u }).click();
         await ndslHeadPage.getByRole('button', { name: /Partial/u }).click();
         ndslHeadPage.on('dialog', dialog => dialog.accept());
         let responsePromise = ndslHeadPage.waitForResponse('/dashboard/students/?/rankings');
-        await ndslHeadPage.getByRole('button', { name: 'Save Changes' }).click();
+        await ndslHeadPage.getByRole('button', { name: 'Update Selection' }).click();
         let response = await responsePromise;
         expect((await response.json()).type).toBe('success');
         await expectPreviousPicksTab(ndslHeadPage, 1, [/Partial/u]);
 
         // Second edit: swap back to Eager
-        await ndslHeadPage.getByRole('button', { name: 'Edit Selection' }).click();
         await ndslHeadPage.getByRole('button', { name: /Partial/u }).click();
         await ndslHeadPage.getByRole('button', { name: /Eager/u }).click();
         responsePromise = ndslHeadPage.waitForResponse('/dashboard/students/?/rankings');
-        await ndslHeadPage.getByRole('button', { name: 'Save Changes' }).click();
+        await ndslHeadPage.getByRole('button', { name: 'Update Selection' }).click();
         response = await responsePromise;
         expect((await response.json()).type).toBe('success');
         await expectPreviousPicksTab(ndslHeadPage, 1, [/Eager/u]);
@@ -824,9 +831,7 @@ test.describe('Draft Lifecycle', () => {
       test('can edit with no changes (idempotent)', async ({ ndslHeadPage }) => {
         await ndslHeadPage.goto('/dashboard/students/');
 
-        // Open edit dialog but don't change anything
-        await ndslHeadPage.getByRole('button', { name: 'Edit Selection' }).click();
-        await expect(ndslHeadPage.getByRole('dialog')).toBeVisible();
+        await expect(ndslHeadPage.getByRole('button', { name: 'Update Selection' })).toBeVisible();
 
         // Eager should already be selected (from previous test)
         await expect(ndslHeadPage.locator('#selection-progress')).toContainText('1 /');
@@ -834,7 +839,7 @@ test.describe('Draft Lifecycle', () => {
         // Submit without changes
         ndslHeadPage.on('dialog', dialog => dialog.accept());
         const responsePromise = ndslHeadPage.waitForResponse('/dashboard/students/?/rankings');
-        await ndslHeadPage.getByRole('button', { name: 'Save Changes' }).click();
+        await ndslHeadPage.getByRole('button', { name: 'Update Selection' }).click();
         const response = await responsePromise;
         expect((await response.json()).type).toBe('success');
 
@@ -856,15 +861,12 @@ test.describe('Draft Lifecycle', () => {
         await cslHeadPage.getByRole('button', { name: /Patient/u }).click();
         cslHeadPage.on('dialog', dialog => dialog.accept());
         const responsePromise = cslHeadPage.waitForResponse('/dashboard/students/?/rankings');
-        await cslHeadPage.getByRole('button', { name: 'Submit' }).click();
+        await cslHeadPage.getByRole('button', { name: 'Submit Selection' }).click();
         const response = await responsePromise;
         const responseData = await response.json();
         expect(responseData.type).toBe('success');
 
-        await expectStudentsCallout(
-          cslHeadPage,
-          'This lab has already submitted its picks for this round.',
-        );
+        await expect(cslHeadPage.getByRole('button', { name: 'Update Selection' })).toBeVisible();
       });
 
       test('after submission: reflects 1 drafted', async ({ cslHeadPage }) => {
@@ -885,16 +887,12 @@ test.describe('Draft Lifecycle', () => {
         await expect(sclHeadPage.getByRole('button', { name: /Persistent/u })).toBeVisible();
         sclHeadPage.on('dialog', dialog => dialog.accept());
         const responsePromise = sclHeadPage.waitForResponse('/dashboard/students/?/rankings');
-        await sclHeadPage.getByRole('button', { name: 'Submit' }).click();
+        await sclHeadPage.getByRole('button', { name: 'Submit Selection' }).click();
         const response = await responsePromise;
         const responseData = await response.json();
         expect(responseData.type).toBe('success');
 
-        await expectStudentsCallout(
-          sclHeadPage,
-          'This lab has already submitted its picks for this round.',
-          ['No undrafted students have selected this lab in this round.'],
-        );
+        await expect(sclHeadPage.getByRole('button', { name: 'Update Selection' })).toBeVisible();
       });
 
       test('after submission: unchanged', async ({ sclHeadPage }) => {
@@ -929,25 +927,24 @@ test.describe('Draft Lifecycle', () => {
         cslHeadPage,
         aclHeadPage,
       }) => {
-        // CSL opens edit dialog (CSL already submitted earlier)
+        // CSL prepares an inline update (CSL already submitted earlier)
         await cslHeadPage.goto('/dashboard/students/');
-        await cslHeadPage.getByRole('button', { name: 'Edit Selection' }).click();
-        await expect(cslHeadPage.getByRole('dialog')).toBeVisible();
+        await expect(cslHeadPage.getByRole('button', { name: 'Update Selection' })).toBeVisible();
 
         // ACL submits (last lab), which advances the round
         await aclHeadPage.goto('/dashboard/students/');
         await expect(aclHeadPage.getByRole('button', { name: /Unlucky/u })).toBeVisible();
         aclHeadPage.on('dialog', dialog => dialog.accept());
         const aclResponsePromise = aclHeadPage.waitForResponse('/dashboard/students/?/rankings');
-        await aclHeadPage.getByRole('button', { name: 'Submit' }).click();
+        await aclHeadPage.getByRole('button', { name: 'Submit Selection' }).click();
         const aclResponse = await aclResponsePromise;
         const aclResponseData = await aclResponse.json();
         expect(aclResponseData.type).toBe('success');
 
-        // CSL tries to save edit - should get 409 failure and see error toast
+        // CSL tries to submit its stale inline update - should get 409 failure and see error toast
         cslHeadPage.on('dialog', dialog => dialog.accept());
         const cslResponsePromise = cslHeadPage.waitForResponse('/dashboard/students/?/rankings');
-        await cslHeadPage.getByRole('button', { name: 'Save Changes' }).click();
+        await cslHeadPage.getByRole('button', { name: 'Update Selection' }).click();
         const cslResponse = await cslResponsePromise;
         const cslResponseData = await cslResponse.json();
 
@@ -984,6 +981,15 @@ test.describe('Draft Lifecycle', () => {
           'No undrafted students have selected this lab in this round.',
           ['This lab has no more draft slots remaining for the rest of this draft.'],
         );
+      });
+
+      test('server rejects forced updates after no-preferences auto-acknowledgement', async ({
+        ndslHeadPage,
+      }) => {
+        await ndslHeadPage.goto('/dashboard/students/');
+        const status = await postFacultyRankings(ndslHeadPage, 1, 2);
+
+        expect(status).toBe(409);
       });
 
       test('stat cards: 1 drafted, Previous Picks Round 1 with Eager', async ({ ndslHeadPage }) => {
@@ -1044,15 +1050,16 @@ test.describe('Draft Lifecycle', () => {
         await cslHeadPage.getByRole('button', { name: /Partial/u }).click();
         cslHeadPage.on('dialog', dialog => dialog.accept());
         const responsePromise = cslHeadPage.waitForResponse('/dashboard/students/?/rankings');
-        await cslHeadPage.getByRole('button', { name: 'Submit' }).click();
+        await cslHeadPage.getByRole('button', { name: 'Submit Selection' }).click();
         const response = await responsePromise;
         const responseData = await response.json();
         expect(responseData.type).toBe('success');
 
         await expectStudentsCallout(
           cslHeadPage,
-          'This lab has already submitted its picks for this round.',
+          'This lab has no more draft slots remaining for the rest of this draft.',
         );
+        await expectPreviousPicksTab(cslHeadPage, 2, [/Partial/u]);
       });
     });
 
@@ -1069,7 +1076,7 @@ test.describe('Draft Lifecycle', () => {
         await expect(cvmilHeadPage.getByRole('button', { name: /Unlucky/u })).toBeVisible();
         cvmilHeadPage.on('dialog', dialog => dialog.accept());
         const responsePromise = cvmilHeadPage.waitForResponse('/dashboard/students/?/rankings');
-        await cvmilHeadPage.getByRole('button', { name: 'Submit' }).click();
+        await cvmilHeadPage.getByRole('button', { name: 'Submit Selection' }).click();
         const response = await responsePromise;
         const responseData = await response.json();
         expect(responseData.type).toBe('success');
@@ -1112,15 +1119,16 @@ test.describe('Draft Lifecycle', () => {
         await ndslHeadPage.getByRole('button', { name: /Unlucky/u }).click();
         ndslHeadPage.on('dialog', dialog => dialog.accept());
         const responsePromise = ndslHeadPage.waitForResponse('/dashboard/students/?/rankings');
-        await ndslHeadPage.getByRole('button', { name: 'Submit' }).click();
+        await ndslHeadPage.getByRole('button', { name: 'Submit Selection' }).click();
         const response = await responsePromise;
         const responseData = await response.json();
         expect(responseData.type).toBe('success');
 
         await expectStudentsCallout(
           ndslHeadPage,
-          'This lab has already submitted its picks for this round.',
+          'This lab has no more draft slots remaining for the rest of this draft.',
         );
+        await expectPreviousPicksTab(ndslHeadPage, 3, [/Unlucky/u]);
       });
     });
 
@@ -1131,6 +1139,15 @@ test.describe('Draft Lifecycle', () => {
           'This lab has no more draft slots remaining for the rest of this draft.',
           ['No undrafted students have selected this lab in this round.'],
         );
+      });
+
+      test('server rejects forced updates after quota-exhausted auto-acknowledgement', async ({
+        cslHeadPage,
+      }) => {
+        await cslHeadPage.goto('/dashboard/students/');
+        const status = await postFacultyRankings(cslHeadPage, 1, 3);
+
+        expect(status).toBe(409);
       });
 
       test('stat cards: quota exhausted, Previous Picks with Patient and PartialToDrafted', async ({
@@ -1193,7 +1210,7 @@ test.describe('Draft Lifecycle', () => {
         await expect(aclHeadPage.getByRole('button', { name: /Persistent/u })).toBeVisible();
         aclHeadPage.on('dialog', dialog => dialog.accept());
         const responsePromise = aclHeadPage.waitForResponse('/dashboard/students/?/rankings');
-        await aclHeadPage.getByRole('button', { name: 'Submit' }).click();
+        await aclHeadPage.getByRole('button', { name: 'Submit Selection' }).click();
         const response = await responsePromise;
         const responseData = await response.json();
         expect(responseData.type).toBe('success');
@@ -2024,15 +2041,16 @@ test.describe('Draft Lifecycle', () => {
       await ndslHeadPage.getByRole('button', { name: /SecondNdsl/u }).click();
       ndslHeadPage.on('dialog', dialog => dialog.accept());
       const responsePromise = ndslHeadPage.waitForResponse('/dashboard/students/?/rankings');
-      await ndslHeadPage.getByRole('button', { name: 'Submit' }).click();
+      await ndslHeadPage.getByRole('button', { name: 'Submit Selection' }).click();
       const response = await responsePromise;
       const responseData = await response.json();
       expect(responseData.type).toBe('success');
 
       await expectStudentsCallout(
         ndslHeadPage,
-        'This lab has already submitted its picks for this round.',
+        'This lab has no more draft slots remaining for the rest of this draft.',
       );
+      await expectPreviousPicksTab(ndslHeadPage, 1, [/SecondNdsl/u]);
     });
 
     test('Round 1: CSL selects SecondCsl', async ({ cslHeadPage }) => {
@@ -2042,7 +2060,7 @@ test.describe('Draft Lifecycle', () => {
       await cslHeadPage.getByRole('button', { name: /SecondCsl/u }).click();
       cslHeadPage.on('dialog', dialog => dialog.accept());
       const responsePromise = cslHeadPage.waitForResponse('/dashboard/students/?/rankings');
-      await cslHeadPage.getByRole('button', { name: 'Submit' }).click();
+      await cslHeadPage.getByRole('button', { name: 'Submit Selection' }).click();
       const response = await responsePromise;
       const responseData = await response.json();
       expect(responseData.type).toBe('success');
@@ -2084,7 +2102,7 @@ test.describe('Draft Lifecycle', () => {
       await sclHeadPage.getByRole('button', { name: /SecondScl/u }).click();
       sclHeadPage.on('dialog', dialog => dialog.accept());
       const responsePromise = sclHeadPage.waitForResponse('/dashboard/students/?/rankings');
-      await sclHeadPage.getByRole('button', { name: 'Submit' }).click();
+      await sclHeadPage.getByRole('button', { name: 'Submit Selection' }).click();
       const response = await responsePromise;
       const responseData = await response.json();
       expect(responseData.type).toBe('success');

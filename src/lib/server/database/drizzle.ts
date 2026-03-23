@@ -913,6 +913,87 @@ export async function getLabAndRemainingStudentsInDraftWithLabPreference(
   );
 }
 
+export async function getLabAutoAcknowledgeStatusInDraftRound(
+  db: DbConnection,
+  draftId: bigint,
+  labId: string,
+  currRound: number,
+) {
+  return await tracer.asyncSpan('get-lab-auto-acknowledge-status-in-draft-round', async span => {
+    span.setAttribute('database.draft.id', draftId.toString());
+    span.setAttribute('database.lab.id', labId);
+    span.setAttribute('database.round', currRound);
+
+    const row = await db
+      .select({
+        initialQuota: schema.draftLabQuota.initialQuota,
+        totalDrafted: count(schema.facultyChoiceUser.studentUserId),
+        submissionLabId: schema.facultyChoice.labId,
+        submissionUserId: schema.facultyChoice.userId,
+      })
+      .from(schema.draftLabQuota)
+      .leftJoin(
+        schema.facultyChoiceUser,
+        and(
+          eq(schema.facultyChoiceUser.draftId, draftId),
+          eq(schema.facultyChoiceUser.labId, labId),
+        ),
+      )
+      .leftJoin(
+        schema.facultyChoice,
+        and(
+          eq(schema.facultyChoice.draftId, draftId),
+          eq(schema.facultyChoice.round, currRound),
+          eq(schema.facultyChoice.labId, labId),
+        ),
+      )
+      .where(and(eq(schema.draftLabQuota.draftId, draftId), eq(schema.draftLabQuota.labId, labId)))
+      .groupBy(
+        schema.draftLabQuota.initialQuota,
+        schema.facultyChoice.labId,
+        schema.facultyChoice.userId,
+      )
+      .then(assertOptional);
+    if (typeof row === 'undefined') return;
+
+    const { initialQuota, totalDrafted, submissionLabId, submissionUserId } = row;
+
+    // eslint-disable-next-line @typescript-eslint/init-declarations
+    let autoAcknowledgeReason: 'quota-exhausted' | 'no-preferences' | undefined;
+    if (totalDrafted >= initialQuota) {
+      autoAcknowledgeReason = 'quota-exhausted';
+    } else {
+      const { preferrerCount } = await db
+        .select({ preferrerCount: countDistinct(schema.studentRankLab.userId) })
+        .from(schema.studentRankLab)
+        .leftJoin(
+          schema.facultyChoiceUser,
+          and(
+            eq(schema.studentRankLab.draftId, schema.facultyChoiceUser.draftId),
+            eq(schema.studentRankLab.userId, schema.facultyChoiceUser.studentUserId),
+          ),
+        )
+        .where(
+          and(
+            eq(schema.studentRankLab.draftId, draftId),
+            eq(schema.studentRankLab.labId, labId),
+            eq(schema.studentRankLab.index, BigInt(currRound)),
+            isNull(schema.facultyChoiceUser.studentUserId),
+          ),
+        )
+        .then(assertSingle);
+      if (preferrerCount === 0) autoAcknowledgeReason = 'no-preferences';
+    }
+
+    // eslint-disable-next-line @typescript-eslint/init-declarations
+    let submissionSource: 'faculty' | 'system' | undefined;
+    if (submissionLabId !== null)
+      submissionSource = submissionUserId === null ? 'system' : 'faculty';
+
+    return { autoAcknowledgeReason, submissionSource };
+  });
+}
+
 /** Typically invoked from within a transaction. */
 export async function autoAcknowledgeLabsWithoutPreferences(
   db: DrizzleTransaction,
