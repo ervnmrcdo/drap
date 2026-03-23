@@ -176,7 +176,7 @@ export const actions = {
               'draft.round.current': activeDraft.currRound,
               'draft.round.expected': expectedRound,
             });
-            return fail(409, { reason: 'round_mismatch' });
+            return fail(409, { reason: 'round-mismatch' });
           }
 
           const existingChoice = await getFacultyChoiceForLabInDraftRound(
@@ -208,7 +208,7 @@ export const actions = {
                 'draft.round.current': activeDraft.currRound,
                 'choice.round': existingChoice.round,
               });
-              return fail(409, { reason: 'round_advanced' });
+              return fail(409, { reason: 'round-advanced' });
             }
 
             const selectedInCurrentRound = await getLabSelectedStudentCountInDraftRound(
