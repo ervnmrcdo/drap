@@ -214,15 +214,6 @@ export const actions = {
                 'editing.user_id': facultyUserId,
               });
 
-            if (existingChoice.round !== activeDraft.currRound) {
-              logger.warn('attempt to edit submission after round advanced', {
-                'draft.id': draftId.toString(),
-                'draft.round.current': activeDraft.currRound,
-                'choice.round': existingChoice.round,
-              });
-              return { success: false, status: 409, data: { reason: 'round_advanced' } };
-            }
-
             const selectedInCurrentRound = await getLabSelectedStudentCountInDraftRound(
               db,
               draftId,
