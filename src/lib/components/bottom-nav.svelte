@@ -10,10 +10,10 @@
   let { sidebar } = $props();
 </script>
 
-<nav
+<menu
   class="flex w-full items-center justify-between gap-2 border-t border-border bg-background/90 px-10 py-2 backdrop-blur-md"
 >
-  <div class="flex size-12 place-content-center items-center">
+  <li class="flex size-12 place-content-center items-center">
     <button
       class="flex place-content-center rounded-lg p-3 active:bg-sidebar-accent active:text-sidebar-accent-foreground"
       onclick={sidebar.toggle.bind(sidebar)}
@@ -21,9 +21,9 @@
       <MenuIcon size={24} />
       <span class="sr-only">Toggle Sidebar</span>
     </button>
-  </div>
+  </li>
 
-  <div class="flex size-12 place-content-center items-center">
+  <li class="flex size-12 place-content-center items-center">
     <div
       class={cn(
         'flex place-content-center rounded-lg p-3',
@@ -37,9 +37,9 @@
         <span class="sr-only">Go to Dashboard</span>
       </a>
     </div>
-  </div>
+  </li>
 
-  <div class="flex size-12 place-content-center items-center">
+  <li class="flex size-12 place-content-center items-center">
     <a
       href={resolve('/')}
       class="flex place-content-center rounded-lg p-3 active:bg-sidebar-accent active:text-sidebar-accent-foreground"
@@ -47,5 +47,5 @@
       <HomeIcon size={24} />
       <span class="sr-only">Go to Home</span>
     </a>
-  </div>
-</nav>
+  </li>
+</menu>
