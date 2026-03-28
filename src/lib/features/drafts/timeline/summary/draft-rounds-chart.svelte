@@ -24,10 +24,14 @@
   let chartMode = $state<'assigned' | 'remaining'>('assigned');
 
   const padding = { top: 20, right: 20, bottom: 30, left: 40 };
+  const PADDING_TOP = 20;
+  const PADDING_LEFT = 40;
+  const PADDING_BOTTOM = 30;
+  const PADDING_RIGHT = 20;
   const width = 600;
   const height = 200;
-  const chartWidth = width - padding.left - padding.right;
-  const chartHeight = height - padding.top - padding.bottom;
+  const chartWidth = width - PADDING_LEFT - PADDING_RIGHT;
+  const chartHeight = height - PADDING_TOP - PADDING_BOTTOM;
 
   let selectedLabId = $state<string | null>(null);
   let hoveredPoint = $state<{
@@ -38,27 +42,45 @@
     y: number;
   } | null>(null);
 
-  const filteredRecords = $derived(
-    selectedLabId === null ? records : records.filter(r => r.labId === selectedLabId),
-  );
-  const filteredInterventionRecords = $derived(
-    selectedLabId === null
-      ? interventionRecords
-      : interventionRecords.filter(r => r.labId === selectedLabId),
-  );
-  const filteredLotteryRecords = $derived(
-    selectedLabId === null ? lotteryRecords : lotteryRecords.filter(r => r.labId === selectedLabId),
-  );
+  // const filteredRecords = $derived(
+  //   selectedLabId === null ? records : records.filter(r => r.labId === selectedLabId),
+  // );
+  // const filteredInterventionRecords = $derived(
+  //   selectedLabId === null
+  //     ? interventionRecords
+  //     : interventionRecords.filter(r => r.labId === selectedLabId),
+  // );
+  // const filteredLotteryRecords = $derived(
+  //   selectedLabId === null ? lotteryRecords : lotteryRecords.filter(r => r.labId === selectedLabId),
+  // );
+  //
+  // const selectedLabQuota = $derived(
+  //   selectedLabId === null ? null : (labs.find(l => l.id === selectedLabId)?.quota ?? null),
+  // );
 
-  const selectedLabQuota = $derived(
-    selectedLabId === null ? null : (labs.find(l => l.id === selectedLabId)?.quota ?? null),
-  );
+  const chartFilter = $derived.by(() => {
+    if (selectedLabId == null) {
+      return {
+        filteredRecords: records,
+        filteredInterventionRecords: interventionRecords,
+        filteredLotteryRecords: lotteryRecords,
+        selectedLabQuota: null,
+      };
+    } else {
+      return {
+        filteredRecords: records.filter(r => r.labId == selectedLabId),
+        filteredInterventionRecords: interventionRecords.filter(r => r.labId === selectedLabId),
+        filteredLotteryRecords: lotteryRecords.filter(r => r.labId === selectedLabId),
+        selectedLabQuota: labs.find(r => r.id === selectedLabId)?.quota ?? null,
+      };
+    }
+  });
 
   const chartData = $derived.by(() => {
     const roundCounts: Record<number, number> = {};
-    for (let i = 1; i <= maxRounds; i++) roundCounts[i] = 0;
+    for (let i = 1; i <= maxRounds; ++i) roundCounts[i] = 0;
 
-    for (const record of filteredRecords)
+    for (const record of chartFilter.filteredRecords)
       if (record.round !== null && record.round > 0)
         roundCounts[record.round] = (roundCounts[record.round] ?? 0) + 1;
 
@@ -67,9 +89,9 @@
       .map(([round, count]) => ({ round: Number(round), count }))
       .sort((a, b) => a.round - b.round);
 
-    const interventionCount = filteredInterventionRecords.length;
+    const interventionCount = chartFilter.filteredInterventionRecords.length;
     const hasInterventions = interventionCount > 0;
-    const hasLottery = filteredLotteryRecords.length > 0;
+    const hasLottery = chartFilter.filteredLotteryRecords.length > 0;
     const totalPoints = nonZeroRounds.length + (hasInterventions ? 1 : 0) + (hasLottery ? 1 : 0);
 
     const points: { label: string; type: 'round' | 'intervention' | 'lottery'; count: number }[] =
@@ -82,23 +104,40 @@
       points.push({ label: 'Interventions', type: 'intervention', count: interventionCount });
 
     if (hasLottery)
-      points.push({ label: 'Lottery', type: 'lottery', count: filteredLotteryRecords.length });
+      points.push({
+        label: 'Lottery',
+        type: 'lottery',
+        count: chartFilter.filteredLotteryRecords.length,
+      });
 
     const maxCount = Math.max(
       ...nonZeroRounds.map(r => r.count),
       interventionCount,
-      filteredLotteryRecords.length,
+      chartFilter.filteredLotteryRecords.length,
       1,
     );
 
-    const maxY = (() => {
-      if (chartMode === 'remaining' && selectedLabId !== null && selectedLabQuota !== null)
-        return Math.max(selectedLabQuota, 1);
+    // const maxY = (() => {
+    //   if (
+    //     chartMode === 'remaining' &&
+    //     selectedLabId !== null &&
+    //     chartFilter.selectedLabQuota !== null
+    //   )
+    //     return Math.max(chartFilter.selectedLabQuota, 1);
+    //
+    //   if (chartMode === 'remaining') return Math.max(totalStudents, 1);
+    //
+    //   return Math.max(maxCount, 1);
+    // })();
 
-      if (chartMode === 'remaining') return Math.max(totalStudents, 1);
-
-      return Math.max(maxCount, 1);
-    })();
+    let maxY = Math.max(maxCount, 1);
+    if (chartMode === 'remaining')
+      maxY = Math.max(
+        selectedLabId === null || chartFilter.selectedLabQuota === null
+          ? totalStudents
+          : chartFilter.selectedLabQuota,
+        1,
+      );
 
     return points.map((point, index) => ({
       ...point,
@@ -108,8 +147,8 @@
           ? padding.top + chartHeight - (point.count / maxCount) * chartHeight
           : padding.top +
             chartHeight -
-            ((selectedLabId !== null && selectedLabQuota !== null
-              ? Math.max(0, selectedLabQuota - cumulativeUpTo(index, points))
+            ((!(selectedLabId === null || chartFilter.selectedLabQuota === null)
+              ? Math.max(0, chartFilter.selectedLabQuota - cumulativeUpTo(index, points))
               : Math.max(0, totalStudents - cumulativeUpTo(index, points))) /
               maxY) *
               chartHeight,
@@ -121,7 +160,7 @@
     pts: { label: string; type: 'round' | 'intervention' | 'lottery'; count: number }[],
   ) {
     let drafted = 0;
-    for (let i = 0; i <= index; i++) {
+    for (let i = 0; i <= index; ++i) {
       const pt = pts[i];
       if (typeof pt === 'undefined') throw new Error(`Expected point at index ${i}`);
       drafted += pt.count;
@@ -130,14 +169,29 @@
   }
 
   const maxCount = $derived(Math.max(...chartData.map(p => p.count), 1));
+  // const chartMax = $derived.by(() => {
+  //   if (
+  //     chartMode === 'remaining' &&
+  //     selectedLabId !== null &&
+  //     chartFilter.selectedLabQuota !== null
+  //   )
+  //     return Math.max(chartFilter.selectedLabQuota, 1);
+  //
+  //   if (chartMode === 'remaining') return Math.max(totalStudents, 1);
+  //
+  //   return Math.max(maxCount, 1);
+  // });
   const chartMax = $derived.by(() => {
-    if (chartMode === 'remaining' && selectedLabId !== null && selectedLabQuota !== null)
-      return Math.max(selectedLabQuota, 1);
-
-    if (chartMode === 'remaining') return Math.max(totalStudents, 1);
-
-    return Math.max(maxCount, 1);
+    if (chartMode === 'remaining') {
+      return Math.max(
+        selectedLabId !== null && chartFilter.selectedLabQuota
+          ? chartFilter.selectedLabQuota
+          : totalStudents,
+        1,
+      );
+    } else return Math.max(maxCount, 1);
   });
+
   const linePath = $derived(
     chartData.length > 0 ? `M ${chartData.map(p => `${p.x},${p.y}`).join(' L ')}` : '',
   );
@@ -196,7 +250,7 @@
           bind:value={selectedLabId}
           class="h-8 w-40 min-w-40 rounded-md border border-border bg-background px-2 pr-8 text-sm"
         >
-          <option value={null}>All Labs</option>
+          <option value="">All Labs</option>
           {#each labs as lab (lab.id)}
             <option value={lab.id}>{lab.name}</option>
           {/each}
@@ -245,10 +299,9 @@
       />
 
       {#each chartData as point, index (point.label)}
-        {@const remaining =
-          selectedLabId !== null && selectedLabQuota !== null
-            ? Math.max(0, selectedLabQuota - cumulativeUpTo(index, chartData))
-            : Math.max(0, totalStudents - cumulativeUpTo(index, chartData))}
+        {@const remaining = !(selectedLabId === null || chartFilter.selectedLabQuota === null)
+          ? Math.max(0, chartFilter.selectedLabQuota - cumulativeUpTo(index, chartData))
+          : Math.max(0, totalStudents - cumulativeUpTo(index, chartData))}
         <g
           role="button"
           tabindex="0"
