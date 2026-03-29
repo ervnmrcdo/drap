@@ -1776,7 +1776,6 @@ export async function getSystemLogsExport(db: DbConnection, draftId: bigint) {
     span.setAttribute('database.draft.id', draftId.toString());
     const facultyUser = alias(schema.user, 'faculty_user');
     const studentUser = alias(schema.user, 'student_user');
-
     return await db
       .select({
         draftId: schema.facultyChoice.draftId,
@@ -1786,7 +1785,7 @@ export async function getSystemLogsExport(db: DbConnection, draftId: bigint) {
         userId: schema.facultyChoice.userId,
         userEmail: facultyUser.email,
         studentEmails:
-          sql<string>`coalesce(array_agg(${studentUser.email}) filter (where ${studentUser.email} is not null), '{}')`.mapWith(
+          sql`coalesce(array_agg(${studentUser.email}) filter (where ${studentUser.email} is not null), '{}')`.mapWith(
             vals => parse(StringArray, vals),
           ),
       })
@@ -1812,7 +1811,7 @@ export async function getSystemLogsExport(db: DbConnection, draftId: bigint) {
       )
       .orderBy(
         desc(schema.facultyChoice.createdAt),
-        sql`${schema.facultyChoice.round} DESC NULLS FIRST`,
+        sql`${schema.facultyChoice.round} desc nulls first`,
         asc(schema.facultyChoice.labId),
       );
   });
