@@ -27,13 +27,14 @@
   const PADDING_LEFT = 40;
   const PADDING_BOTTOM = 30;
   const PADDING_RIGHT = 20;
-  const width = 600;
-  const height = 200;
 
-  const chartWidth = width - PADDING_LEFT - PADDING_RIGHT;
-  const chartHeight = height - PADDING_TOP - PADDING_BOTTOM;
+  const CANVAS_WIDTH = 600;
+  const CANVAS_HEIGHT = 200;
 
-  let selectedLabId = $state<string>('');
+  const CHART_WIDTH = CANVAS_WIDTH - PADDING_LEFT - PADDING_RIGHT;
+  const CHART_HEIGHT = CANVAS_HEIGHT - PADDING_TOP - PADDING_BOTTOM;
+
+  let selectedLabId = $state('');
   let hoveredPoint = $state<{
     label: string;
     count: number;
@@ -42,22 +43,21 @@
     y: number;
   } | null>(null);
 
-  const chartFilter = $derived.by(() => {
-    if (selectedLabId === '')
-      return {
-        filteredRecords: records,
-        filteredInterventionRecords: interventionRecords,
-        filteredLotteryRecords: lotteryRecords,
-        selectedLabQuota: null,
-      };
-
-    return {
-      filteredRecords: records.filter(r => r.labId === selectedLabId),
-      filteredInterventionRecords: interventionRecords.filter(r => r.labId === selectedLabId),
-      filteredLotteryRecords: lotteryRecords.filter(r => r.labId === selectedLabId),
-      selectedLabQuota: labs.find(r => r.id === selectedLabId)?.quota ?? null,
-    };
-  });
+  const chartFilter = $derived(
+    selectedLabId === ''
+      ? {
+          filteredRecords: records,
+          filteredInterventionRecords: interventionRecords,
+          filteredLotteryRecords: lotteryRecords,
+          selectedLabQuota: null,
+        }
+      : {
+          filteredRecords: records.filter(r => r.labId === selectedLabId),
+          filteredInterventionRecords: interventionRecords.filter(r => r.labId === selectedLabId),
+          filteredLotteryRecords: lotteryRecords.filter(r => r.labId === selectedLabId),
+          selectedLabQuota: labs.find(r => r.id === selectedLabId)?.quota ?? null,
+        },
+  );
 
   const chartData = $derived.by(() => {
     const roundCounts: Record<number, number> = {};
@@ -111,17 +111,17 @@
 
     return points.map((point, index) => ({
       ...point,
-      x: PADDING_LEFT + (index / Math.max(totalPoints - 1, 1)) * chartWidth,
+      x: PADDING_LEFT + (index / Math.max(totalPoints - 1, 1)) * CHART_WIDTH,
       y:
         chartMode === 'assigned'
-          ? PADDING_TOP + chartHeight - (point.count / maxCount) * chartHeight
+          ? PADDING_TOP + CHART_HEIGHT - (point.count / maxCount) * CHART_HEIGHT
           : PADDING_TOP +
-            chartHeight -
+            CHART_HEIGHT -
             ((selectedLabId !== '' && chartFilter.selectedLabQuota !== null
               ? Math.max(0, chartFilter.selectedLabQuota - cumulativeUpTo(index, points))
               : Math.max(0, totalStudents - cumulativeUpTo(index, points))) /
               maxY) *
-              chartHeight,
+              CHART_HEIGHT,
     }));
   });
 
@@ -143,9 +143,9 @@
   const chartMax = $derived.by(() => {
     if (chartMode === 'remaining')
       return Math.max(
-        selectedLabId !== '' && chartFilter.selectedLabQuota !== null
-          ? chartFilter.selectedLabQuota
-          : totalStudents,
+        selectedLabId === '' || chartFilter.selectedLabQuota === null
+          ? totalStudents
+          : chartFilter.selectedLabQuota,
         1,
       );
     return Math.max(maxCount, 1);
@@ -160,8 +160,9 @@
     if (data.length === 0) return '';
     const [first] = data;
     const last = data.at(-1);
-    if (!first || !last) throw new Error('Expected non-empty chart data');
-    return `${linePath} L ${last.x},${PADDING_TOP + chartHeight} L ${first.x},${PADDING_TOP + chartHeight} Z`;
+    if (typeof first === 'undefined' || typeof last === 'undefined')
+      throw new Error('Expected non-empty chart data');
+    return `${linePath} L ${last.x},${PADDING_TOP + CHART_HEIGHT} L ${first.x},${PADDING_TOP + CHART_HEIGHT} Z`;
   });
 
   const yTicks = $derived.by(() => {
@@ -171,9 +172,11 @@
     for (let i = 0; i <= chartMax; i += step) ticks.push(i);
     return ticks;
   });
+
   const selectedLabName = $derived(
     selectedLabId === '' ? null : labs.find(l => l.id === selectedLabId)?.name,
   );
+
   const chartModeLabel = $derived.by(() => {
     if (chartMode === 'assigned') return 'Students assigned';
     if (selectedLabId === '') return 'Students not yet assigned';
@@ -187,10 +190,10 @@
       <div>
         <Card.Title
           >{chartModeLabel} per phase
-          {#if typeof selectedLabName !== 'undefined' && selectedLabName !== null}
-            &mdash; <Badge variant="secondary">{selectedLabName}</Badge>
-          {:else}
+          {#if typeof selectedLabName === 'undefined' || selectedLabName === null}
             &mdash; <Badge variant="default">All labs</Badge>
+          {:else}
+            &mdash; <Badge variant="secondary">{selectedLabName}</Badge>
           {/if}
         </Card.Title>
         <Card.Description
@@ -218,7 +221,7 @@
     </div></Card.Header
   >
   <Card.Content>
-    <svg viewBox="0 0 {width} {height}" class="h-auto w-full">
+    <svg viewBox="0 0 {CANVAS_WIDTH} {CANVAS_HEIGHT}" class="h-auto w-full">
       <defs>
         <linearGradient id="fillArea" x1="0" y1="0" x2="0" y2="1">
           <stop offset="5%" stop-color="var(--primary)" stop-opacity={0.3} />
@@ -227,11 +230,11 @@
       </defs>
 
       {#each yTicks as tick (tick)}
-        {@const y = PADDING_TOP + chartHeight - (tick / chartMax) * chartHeight}
+        {@const y = PADDING_TOP + CHART_HEIGHT - (tick / chartMax) * CHART_HEIGHT}
         <line
           x1={PADDING_LEFT}
           y1={y}
-          x2={width - PADDING_RIGHT}
+          x2={CANVAS_WIDTH - PADDING_RIGHT}
           y2={y}
           stroke="var(--border)"
           stroke-dasharray="4"
@@ -259,9 +262,9 @@
 
       {#each chartData as point, index (point.label)}
         {@const remaining =
-          selectedLabId !== '' && chartFilter.selectedLabQuota !== null
-            ? Math.max(0, chartFilter.selectedLabQuota - cumulativeUpTo(index, chartData))
-            : Math.max(0, totalStudents - cumulativeUpTo(index, chartData))}
+          selectedLabId === '' || chartFilter.selectedLabQuota === null
+            ? Math.max(0, totalStudents - cumulativeUpTo(index, chartData))
+            : Math.max(0, chartFilter.selectedLabQuota - cumulativeUpTo(index, chartData))}
         <g
           role="button"
           tabindex="0"
@@ -282,7 +285,7 @@
 
       {#if hoveredPoint !== null}
         {@const tooltipX = hoveredPoint.x - 5}
-        {@const tooltipY = Math.min(hoveredPoint.y + 25, PADDING_TOP + chartHeight - 20)}
+        {@const tooltipY = Math.min(hoveredPoint.y + 25, PADDING_TOP + CHART_HEIGHT - 20)}
         <rect
           x={tooltipX - 10}
           y={tooltipY - 14}
@@ -303,7 +306,12 @@
       {/if}
 
       {#each chartData as { label, x } (label)}
-        <text {x} y={height - 8} text-anchor="middle" class="fill-muted-foreground text-[10px]">
+        <text
+          {x}
+          y={CANVAS_HEIGHT - 8}
+          text-anchor="middle"
+          class="fill-muted-foreground text-[10px]"
+        >
           {label}
         </text>
       {/each}
